@@ -3,17 +3,19 @@
    - SweetAlert2 for UX (toasts, confirms)
    - Chart.js dashboard
    - html2pdf print (with fallback to window.print)
+   - Row delete inside statement + date filtering + footer toolbar
    ----------------------------------------------------------- */
 
-// Reduce noise from html2canvas (used by html2pdf)
+// reduce console noise from html2canvas (used by html2pdf)
 window.html2canvas = { logging: false };
 
 if (!window.__DEBT_BOOK_APP_STATIC__) {
   window.__DEBT_BOOK_APP_STATIC__ = true;
 
   document.addEventListener('DOMContentLoaded', () => {
-    /* ---------- tiny helpers ---------- */
+    /* ---------- helpers ---------- */
     const $ = (s, r=document) => r.querySelector(s);
+    const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
     const esc = (s) => (s==null?'':String(s)).replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[m]));
     const fmt = (n) => Number(n||0).toLocaleString('da-DK',{style:'currency',currency:'DKK'});
     const todayISO = () => new Date().toISOString().slice(0,10);
@@ -36,7 +38,6 @@ if (!window.__DEBT_BOOK_APP_STATIC__) {
 
       sumIn: $('#sum-in'), sumOut: $('#sum-out'), sumNet: $('#sum-net'),
 
-      tabBtns: document.querySelectorAll('.tab'),
       tabStatement: $('#tab-statement'), tabDashboard: $('#tab-dashboard'),
 
       a4: $('#a4-page'), head: $('#a4-header'), main: $('#a4-main'), foot: $('#a4-footer'),
@@ -54,9 +55,14 @@ if (!window.__DEBT_BOOK_APP_STATIC__) {
     /* ---------- storage ---------- */
     const STORE_KEY = 'debt_book_static_v1';
     const THEME_KEY = 'debt_book_theme_v1';
+    const UI_KEY    = 'debt_book_ui_v1';
     let model = load() || { people:[], tx:[], selectedId:null };
+    let ui = loadUI() || { from:'', to:'' };
+
     function load(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)||''); } catch{ return null; } }
     function save(){ localStorage.setItem(STORE_KEY, JSON.stringify(model)); }
+    function loadUI(){ try{ return JSON.parse(localStorage.getItem(UI_KEY)||''); } catch{ return null; } }
+    function saveUI(){ localStorage.setItem(UI_KEY, JSON.stringify(ui)); }
 
     // Theme boot
     (function bootTheme(){
@@ -144,6 +150,19 @@ if (!window.__DEBT_BOOK_APP_STATIC__) {
       });
     }
 
+    /* ---------- date filter ---------- */
+    function applyFilter(list){
+      const from = ui.from ? new Date(ui.from) : null;
+      const to   = ui.to   ? new Date(ui.to)   : null;
+      return list.filter(t=>{
+        const d = t.date ? new Date(t.date) : null;
+        if(!d) return false;
+        if(from && d < from) return false;
+        if(to   && d > to)   return false;
+        return true;
+      });
+    }
+
     /* ---------- summary ---------- */
     function renderSummary(){
       const net = model.tx.reduce((s,t)=>s+(t.signed||0),0);
@@ -165,7 +184,8 @@ if (!window.__DEBT_BOOK_APP_STATIC__) {
     /* ---------- statement ---------- */
     function renderStatement(){
       const p=personById(model.selectedId);
-      const ledger=p?txForPerson(p.id):[];
+      const all = p ? txForPerson(p.id) : [];
+
       el.head.innerHTML = p ? `
         <div class="title">
           <h1>${esc(p.name)}</h1>
@@ -173,11 +193,16 @@ if (!window.__DEBT_BOOK_APP_STATIC__) {
         </div>
         <div class="contact">
           ${p.contact?`<span><i class="fa-solid fa-address-card"></i> ${esc(p.contact)}</span> · `:''}
-          Oprettet: ${esc(p.created)}
+          Oprettet: ${esc(p.created)}${(ui.from||ui.to)?` · <em>Filter: ${esc(ui.from||'…')} → ${esc(ui.to||'…')}</em>`:''}
         </div>
       ` : `<h1>Vælg en person</h1>`;
 
-      if(!p){ el.main.innerHTML='<p class="info-small">Når du vælger en person, vises en komplet kontoudskrift her.</p>'; el.foot.innerHTML=''; return; }
+      if(!p){
+        el.main.innerHTML='<p class="info-small">Når du vælger en person, vises en komplet kontoudskrift her.</p>';
+        el.foot.innerHTML=''; return;
+      }
+
+      const ledger = (ui.from || ui.to) ? applyFilter(all) : all;
 
       const rows=ledger.map(t=>{
         const badge = t.type==='lent' ? 'Lånt til dem'
@@ -185,46 +210,184 @@ if (!window.__DEBT_BOOK_APP_STATIC__) {
                    : t.type==='borrowed' ? 'Jeg har lånt'
                    : 'Jeg har tilbagebetalt';
         const overdue = t.due && (t.type==='lent' || t.type==='borrowed') && (new Date(t.due) < new Date());
-        return `<tr class="${overdue?'overdue':''}">
+        return `<tr data-id="${t.id}" class="${overdue?'overdue':''}">
           <td>${esc(t.date||'')}</td>
           <td>${esc(t.due||'')}</td>
           <td><span class="tag">${badge}</span>${t.note?` — ${esc(t.note)}`:''}</td>
           <td class="num">${fmt(t.amount)}</td>
           <td class="num">${fmt(t.signed)}</td>
+          <td class="act"><button class="row-del" data-del="${t.id}" title="Slet"><i class="fa-regular fa-trash-can"></i></button></td>
         </tr>`;
       }).join('');
 
-      const bal=balanceForPerson(p.id);
+      const bal=ledger.reduce((s,t)=>s+(t.signed||0),0);
       el.main.innerHTML = `
-        <table class="table" aria-label="Transaktioner">
-          <thead>
-            <tr><th>Dato</th><th>Forfald</th><th>Beskrivelse</th><th>Beløb</th><th>Signeret</th></tr>
-          </thead>
-          <tbody>${rows || `<tr><td colspan="5">Ingen transaktioner endnu.</td></tr>`}</tbody>
-          <tfoot><tr><th colspan="4" class="num">Saldo</th><th class="num">${fmt(bal)}</th></tr></tfoot>
-        </table>`;
+        <div class="stm-wrap" id="stmWrap">
+          <table class="table" aria-label="Transaktioner">
+            <thead>
+              <tr><th>Dato</th><th>Forfald</th><th>Beskrivelse</th><th>Beløb</th><th>Signeret</th><th class="act">Slet</th></tr>
+            </thead>
+            <tbody>${rows || `<tr><td colspan="6">Ingen transaktioner${(ui.from||ui.to)?' i valgte periode':''}.</td></tr>`}</tbody>
+            <tfoot><tr><th colspan="4" class="num">Saldo ${ui.from||ui.to?'(filter)':''}</th><th class="num">${fmt(bal)}</th><th></th></tr></tfoot>
+          </table>
+        </div>`;
 
-      el.foot.innerHTML = rows
-        ? `<div class="info-small">Slet transaktion:</div><div>${txForPerson(p.id).map(t=>`<button class="icon-btn" data-del="${t.id}" title="Slet"><i class="fa-solid fa-xmark"></i></button>`).join('')}</div>`
-        : '';
-      el.foot.querySelectorAll('[data-del]')?.forEach(b=> b.addEventListener('click', ()=> delTx(b.dataset.del)));
+      // Per-row delete
+      $$('#a4-main [data-del]').forEach(btn => btn.addEventListener('click', () => delTx(btn.dataset.del)));
+
+      // Footer toolbar (filters + actions)
+      el.foot.innerHTML = `
+        <div class="stm-actions">
+          <div class="group">
+            <strong>Filter:</strong>
+            <input id="flt-from" type="date" value="${esc(ui.from||'')}" />
+            <span>→</span>
+            <input id="flt-to" type="date" value="${esc(ui.to||'')}" />
+            <button class="btn-outline btn-sm" id="flt-apply"><i class="fa-solid fa-filter"></i> Anvend</button>
+            <button class="btn-outline btn-sm" id="flt-clear"><i class="fa-solid fa-eraser"></i> Ryd</button>
+          </div>
+          <div class="grow"></div>
+          <div class="group">
+            <button class="btn-outline" id="btn-person-info"><i class="fa-regular fa-id-badge"></i> Persondetaljer</button>
+            <button class="btn-primary" id="btn-print-range"><i class="fa-solid fa-print"></i> Print transaktioner</button>
+          </div>
+        </div>`;
+
+      // wire toolbar
+      $('#flt-apply').addEventListener('click', ()=>{
+        ui.from = $('#flt-from').value || '';
+        ui.to   = $('#flt-to').value   || '';
+        saveUI(); renderStatement();
+      });
+      $('#flt-clear').addEventListener('click', ()=>{
+        ui.from=''; ui.to=''; saveUI(); renderStatement();
+      });
+      ['keyup','change'].forEach(ev=>{
+        $('#flt-from').addEventListener(ev, e=>{ if(e.key==='Enter') $('#flt-apply').click(); });
+        $('#flt-to').addEventListener(ev, e=>{ if(e.key==='Enter') $('#flt-apply').click(); });
+      });
+
+      $('#btn-person-info').addEventListener('click', ()=> showPersonInfo(p, all));
+      $('#btn-print-range').addEventListener('click', ()=> printSelected(ledger));
+
+      // If many rows, scroll to bottom (latest)
+      if (ledger.length > 10) {
+        const wrap = $('#stmWrap');
+        if (wrap) wrap.scrollTop = wrap.scrollHeight;
+      }
     }
 
-    /* ---------- tabs ---------- */
-    document.querySelectorAll('.tab').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-        btn.classList.add('active');
-        const dash = btn.dataset.tab==='dashboard';
-        el.tabDashboard.hidden=!dash; el.tabStatement.hidden=dash;
-        if(dash) renderDashboard();
-      });
+    /* ---------- Person info (SweetAlert) ---------- */
+    function showPersonInfo(p, allTx){
+      const total = allTx.length;
+      const pos = allTx.filter(t=>t.signed>0).reduce((s,t)=>s+t.signed,0);
+      const neg = allTx.filter(t=>t.signed<0).reduce((s,t)=>s+t.signed,0);
+      const html = `
+        <div style="text-align:left">
+          <div style="font-weight:800;font-size:1.1rem">${esc(p.name)}</div>
+          <div style="color:#64748b;margin:.25rem 0 .5rem">${p.contact?esc(p.contact)+' · ':''}Oprettet: ${esc(p.created)}</div>
+          <ul style="padding-left:1rem;margin:.25rem 0;line-height:1.5">
+            <li><strong>Saldo:</strong> ${fmt(balanceForPerson(p.id))}</li>
+            <li><strong>Transaktioner:</strong> ${total}</li>
+            <li><strong>De skylder:</strong> ${fmt(pos)}</li>
+            <li><strong>Jeg skylder:</strong> ${fmt(Math.abs(neg))}</li>
+            ${p.note?`<li><strong>Note:</strong> ${esc(p.note)}</li>`:''}
+          </ul>
+        </div>`;
+      Swal.fire({ title:'Persondetaljer', html, icon:'info', confirmButtonText:'OK' });
+    }
+
+    /* ---------- printing (respects current filter) ---------- */
+    const printCSS = `
+      @page{size:a4;margin:0}
+      body{margin:0;font-family:Inter,Arial,sans-serif;color:#111}
+      .wrap{width:210mm;min-height:297mm;padding:12mm;box-sizing:border-box}
+      h1{margin:0 0 4mm;font-size:22pt}
+      .meta{color:#666;margin:0 0 6mm}
+      .badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #e0e0e0;background:#f7f9f9;font-weight:700;margin-left:6px}
+      table{width:100%;border-collapse:collapse}
+      th,td{border-bottom:1px solid #e5e7eb;padding:6px 4px;text-align:left}
+      th{color:#5F7C79}
+      td.num,th.num{text-align:right;font-weight:700}
+    `;
+
+    function buildStatementHTML(p, ledger){
+      const bal = ledger.reduce((s,t)=>s+(t.signed||0),0);
+      const rows = ledger.map(t=>{
+        const badge = t.type==='lent' ? 'Lånt til dem'
+                   : t.type==='repay_to_me' ? 'Tilbage til mig'
+                   : t.type==='borrowed' ? 'Jeg har lånt'
+                   : 'Jeg har tilbagebetalt';
+        return `<tr>
+          <td>${esc(t.date||'')}</td>
+          <td>${esc(t.due||'')}</td>
+          <td><span style="border:1px solid #e5e7eb;padding:2px 6px;border-radius:8px;background:#f8fafc;font-weight:700">${badge}</span>${t.note?` — ${esc(t.note)}`:''}</td>
+          <td class="num">${fmt(t.amount)}</td>
+          <td class="num">${fmt(t.signed)}</td>
+        </tr>`;
+      }).join('');
+      return `
+        <div class="wrap">
+          <h1>${esc(p.name)} <span class="badge">Saldo: ${fmt(bal)}</span></h1>
+          <div class="meta">${p.contact?`${esc(p.contact)} · `:''}Oprettet: ${esc(p.created)}</div>
+          <table>
+            <thead><tr><th>Dato</th><th>Forfald</th><th>Beskrivelse</th><th>Beløb</th><th>Signeret</th></tr></thead>
+            <tbody>${rows||`<tr><td colspan="5">Ingen transaktioner.</td></tr>`}</tbody>
+            <tfoot><tr><th colspan="4" class="num">Saldo</th><th class="num">${fmt(bal)}</th></tr></tfoot>
+          </table>
+        </div>`;
+    }
+
+    async function printSelected(customLedger){
+      const p=personById(model.selectedId);
+      if(!p){ Swal.fire({icon:'info', title:'Vælg en person først'}); return; }
+      const ledger = Array.isArray(customLedger) ? customLedger : txForPerson(p.id);
+      if(!ledger.length){ Swal.fire({icon:'info', title:'Ingen transaktioner at printe'}); return; }
+
+      const html = buildStatementHTML(p, ledger);
+      const holder=document.createElement('div');
+      holder.style.position='fixed'; holder.style.left='-99999px'; holder.style.top='0';
+      holder.innerHTML=html;
+      document.body.appendChild(holder);
+
+      try{
+        await wait('Genererer PDF …');
+        const opt={
+          margin:0,
+          filename:`konto-${fileSafe(p.name||'person')}.pdf`,
+          image:{type:'jpeg',quality:0.98},
+          html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false},
+          jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+          pagebreak:{mode:['avoid-all','css','legacy']}
+        };
+        await html2pdf().set(opt).from(holder.firstElementChild).save();
+        Swal.close();
+        toast.fire({icon:'success', title:'PDF gemt'});
+      }catch(err){
+        Swal.close();
+        const w=window.open('','_blank');
+        if(w){
+          w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.name)}</title><style>${printCSS}</style></head><body>${html}</body></html>`);
+          w.document.close(); w.focus(); w.print(); w.close();
+        }else{
+          Swal.fire({icon:'error', title:'Kunne ikke generere PDF', text: String(err||'')});
+        }
+      } finally {
+        holder.remove();
+      }
+    }
+    // Topbar print button respects current filter too
+    el.printPerson.addEventListener('click', ()=>{
+      const p=personById(model.selectedId); if(!p){ Swal.fire({icon:'info', title:'Vælg en person først'}); return; }
+      const all = txForPerson(p.id);
+      const ledger = (ui.from || ui.to) ? applyFilter(all) : all;
+      printSelected(ledger);
     });
 
     /* ---------- dashboard (Chart.js) ---------- */
     const charts={ top:null, monthlyNet:null, byType:null, aging:null, monthlyCount:null };
-    const css = (name)=> getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const colorSet = ()=>({ accent:css('--accent'), good:css('--good'), bad:css('--bad'), neutral:'#64748b' });
+    const cssVar = (name)=> getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const colorSet = ()=>({ accent:cssVar('--accent'), good:cssVar('--good'), bad:cssVar('--bad'), neutral:'#64748b' });
 
     const monthsBackLabels=(n=12)=>{ const arr=[]; const d=new Date(); for(let i=n-1;i>=0;i--){ const t=new Date(d.getFullYear(), d.getMonth()-i, 1); arr.push(`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`); } return arr; };
     const bucketMonth=(s)=> s ? `${new Date(s).getFullYear()}-${String(new Date(s).getMonth()+1).padStart(2,'0')}` : '';
@@ -303,104 +466,18 @@ if (!window.__DEBT_BOOK_APP_STATIC__) {
       finally{ e.target.value=''; }
     });
 
-    /* ---------- PRINT PERSON (robust) ---------- */
-    const printCSS = `
-      @page{size:a4;margin:0}
-      body{margin:0;font-family:Inter,Arial,sans-serif;color:#111}
-      .wrap{width:210mm;min-height:297mm;padding:12mm;box-sizing:border-box}
-      h1{margin:0 0 4mm;font-size:22pt}
-      .meta{color:#666;margin:0 0 6mm}
-      .badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #e0e0e0;background:#f7f9f9;font-weight:700;margin-left:6px}
-      table{width:100%;border-collapse:collapse}
-      th,td{border-bottom:1px solid #e5e7eb;padding:6px 4px;text-align:left}
-      th{color:#5F7C79}
-      td.num,th.num{text-align:right;font-weight:700}
-    `;
-
-    function buildStatementHTML(p, ledger){
-      const bal = ledger.reduce((s,t)=>s+(t.signed||0),0);
-      const rows = ledger.map(t=>{
-        const badge = t.type==='lent' ? 'Lånt til dem'
-                   : t.type==='repay_to_me' ? 'Tilbage til mig'
-                   : t.type==='borrowed' ? 'Jeg har lånt'
-                   : 'Jeg har tilbagebetalt';
-        return `<tr>
-          <td>${esc(t.date||'')}</td>
-          <td>${esc(t.due||'')}</td>
-          <td><span style="border:1px solid #e5e7eb;padding:2px 6px;border-radius:8px;background:#f8fafc;font-weight:700">${badge}</span>${t.note?` — ${esc(t.note)}`:''}</td>
-          <td class="num">${fmt(t.amount)}</td>
-          <td class="num">${fmt(t.signed)}</td>
-        </tr>`;
-      }).join('');
-      return `
-        <div class="wrap">
-          <h1>${esc(p.name)} <span class="badge">Saldo: ${fmt(bal)}</span></h1>
-          <div class="meta">${p.contact?`${esc(p.contact)} · `:''}Oprettet: ${esc(p.created)}</div>
-          <table>
-            <thead><tr><th>Dato</th><th>Forfald</th><th>Beskrivelse</th><th>Beløb</th><th>Signeret</th></tr></thead>
-            <tbody>${rows||`<tr><td colspan="5">Ingen transaktioner.</td></tr>`}</tbody>
-            <tfoot><tr><th colspan="4" class="num">Saldo</th><th class="num">${fmt(bal)}</th></tr></tfoot>
-          </table>
-        </div>`;
-    }
-
-    async function printSelected(){
-      const p=personById(model.selectedId);
-      if(!p){ Swal.fire({icon:'info', title:'Vælg en person først'}); return; }
-      const ledger=txForPerson(p.id);
-      if(!ledger.length){ Swal.fire({icon:'info', title:'Ingen transaktioner at printe'}); return; }
-
-      // Build clean, standalone HTML for the PDF container
-      const html = buildStatementHTML(p, ledger);
-      const holder=document.createElement('div');
-      holder.style.position='fixed'; holder.style.left='-99999px'; holder.style.top='0';
-      holder.innerHTML=html;
-      document.body.appendChild(holder);
-
-      try{
-        await wait('Genererer PDF …');
-        const opt={
-          margin:0,
-          filename:`konto-${fileSafe(p.name||'person')}.pdf`,
-          image:{type:'jpeg',quality:0.98},
-          html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff',logging:false},
-          jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
-          pagebreak:{mode:['avoid-all','css','legacy']}
-        };
-        await html2pdf().set(opt).from(holder.firstElementChild).save();
-        Swal.close();
-        toast.fire({icon:'success', title:'PDF gemt'});
-      }catch(err){
-        // Fallback: open simple print window (covers offline CDN / adblockers)
-        Swal.close();
-        const w=window.open('','_blank');
-        if(w){
-          w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.name)}</title><style>${printCSS}</style></head><body>${html}</body></html>`);
-          w.document.close(); w.focus();
-          w.print(); w.close();
-        }else{
-          Swal.fire({icon:'error', title:'Kunne ikke generere PDF', text: String(err||'')});
-        }
-      } finally {
-        holder.remove();
-      }
-    }
-    el.printPerson.addEventListener('click', printSelected);
-
-    /* ---------- dashboard download ---------- */
-    $('#dl-dashboard').addEventListener('click', async ()=>{
-      try{
-        const clone=el.dashWrap.cloneNode(true);
-        Object.assign(clone.style,{position:'fixed',left:'-99999px',top:'0',background:'#fff',padding:'12px'});
-        document.body.appendChild(clone);
-        const canvas=await html2canvas(clone,{scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false});
-        const url=canvas.toDataURL('image/png'); clone.remove();
-        const a=document.createElement('a'); a.href=url; a.download='dashboard.png'; a.click();
-        toast.fire({icon:'success', title:'Dashboard downloadet'});
-      }catch{ Swal.fire({icon:'error', title:'Kunne ikke gemme dashboard'}); }
+    /* ---------- tabs ---------- */
+    document.querySelectorAll('.tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        const dash = btn.dataset.tab==='dashboard';
+        el.tabDashboard.hidden=!dash; el.tabStatement.hidden=dash;
+        if(dash) renderDashboard();
+      });
     });
 
-    /* ---------- init ---------- */
+    /* ---------- boot ---------- */
     renderPeople(); renderStatement(); renderSummary(); renderDashboard();
   });
 }

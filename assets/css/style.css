@@ -86,6 +86,8 @@ input:focus, textarea:focus, select:focus{outline:none; border-color:var(--accen
 
 .icon-btn{border:1px solid var(--line); background:#fff; color:var(--muted); border-radius:10px; padding:.35rem .5rem; cursor:pointer}
 .icon-btn:hover{color:var(--ink); border-color:var(--accent)}
+.row-del{background:#fff; color:var(--bad); border:1px solid #f1caca; border-radius:10px; padding:.3rem .55rem; cursor:pointer}
+.row-del:hover{background:#fff4f4}
 
 .info-small{color:var(--muted); font-weight:700; margin:.2rem 0 .5rem}
 .hint{color:var(--muted); font-size:.9rem; margin-top:.4rem}
@@ -103,39 +105,55 @@ input:focus, textarea:focus, select:focus{outline:none; border-color:var(--accen
 .tab.active{background:color-mix(in oklab, var(--tint) 45%, white); color:var(--accent); border:1px solid var(--line)}
 .tabs-right{margin-left:auto}
 
-/* -------- Statement (mobile-first) -------- */
-.no-scrollbar{scrollbar-width:none}
-.no-scrollbar::-webkit-scrollbar{display:none}
-
+/* -------- Statement -------- */
 #a4-page{
   width:100%;
-  min-height:60vh;
   padding:16px;
   background:#fff;
   border:1px solid var(--line);
   border-radius:12px;
   box-shadow:var(--shadow-1);
 }
-@media (min-width:980px){
-  #a4-page{
-    /*width:210mm; */             /* A4 look on big screens */
-    min-height:297mm;
-    padding:14mm;
-  }
-}
+
 #a4-header{border-bottom:3px solid var(--accent); padding-bottom:10px; margin-bottom:14px; display:flex; align-items:flex-end; justify-content:space-between; gap:10px}
 #a4-header .title{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
 #a4-header h1{margin:0; font-size:2rem; font-weight:800; color:var(--accent-2)}
 #a4-header .badge{background:color-mix(in oklab, var(--cta) 20%, white); border:1px solid var(--line); border-radius:999px; padding:.25rem .6rem; font-weight:800}
 #a4-header .contact{color:var(--muted); font-weight:700}
-.table{width:100%; border-collapse:collapse; margin-top:.6rem}
-.table th,.table td{border-bottom:1px solid var(--line); padding:.5rem .4rem; text-align:left}
+
+/* Scroll wrapper for statement table */
+.stm-wrap{
+  border:2px solid var(--accent-2);
+  border-radius:12px;
+  padding:2px;
+  max-height: 55vh;            /* mobile-first */
+  overflow:auto;
+  background:#fff;
+}
+@media (min-width:980px){
+  .stm-wrap{ max-height: 440px; } /* ~10-12 rows on desktop */
+}
+
+/* Table */
+.table{width:100%; border-collapse:separate; border-spacing:0}
+.stm-wrap .table thead th{ position:sticky; top:0; background:#f6fffb; z-index:1; }
+.table th,.table td{border-bottom:1px solid var(--line); padding:.55rem .5rem; text-align:left}
 .table th{color:var(--muted); font-weight:800}
-.table .num{text-align:right; font-weight:800}
+.table .num{text-align:right; font-weight:800; white-space:nowrap}
+.table .act{width:1%; white-space:nowrap}
 .tag{display:inline-block; background:#f8fafc; border:1px solid var(--line); padding:.15rem .45rem; border-radius:8px; font-weight:700; color:#124}
 .bad{color:var(--bad)}
 .good{color:var(--good)}
 .overdue{background:rgba(200,0,0,.08); border-color:#f1c2c2}
+
+/* Footer toolbar */
+.stm-actions{
+  display:flex; flex-wrap:wrap; gap:.5rem .6rem; align-items:center;
+  border-top:1px solid var(--line); margin-top:.9rem; padding-top:.7rem;
+}
+.stm-actions .grow{flex:1}
+.stm-actions .group{display:flex; gap:.4rem; align-items:center}
+.stm-actions .group input[type="date"]{padding:.5rem .7rem}
 
 /* -------- Dashboard -------- */
 .dash{display:flex; flex-direction:column; gap:.8rem}
