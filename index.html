@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="da" data-theme="nrgi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Debt & Credit Tracker + Admin</title>
+
+  <!-- Fonts & Icons -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+
+  <!-- SweetAlert2 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css"/>
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="assets/css/style.css"/>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Top bar -->
+  <header class="topbar card" role="banner">
+    <div class="brand">
+      <i class="fa-solid fa-scale-balanced" aria-hidden="true"></i>
+      <span>Debt & Credit Tracker</span>
+    </div>
+
+    <div class="controls" role="group" aria-label="Handlinger">
+      <label class="control" for="theme-select">
+        <span>Tema</span>
+        <select id="theme-select" aria-label="Tema">
+          <option value="nrgi">NRGi (Grøn)</option>
+          <option value="slate">Skifer</option>
+          <option value="royal">Royal</option>
+          <option value="sand">Sand</option>
+        </select>
+      </label>
+
+      <button class="btn-outline" id="export-json"><i class="fa-solid fa-file-export"></i> Export JSON</button>
+      <button class="btn-outline" id="export-csv"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+
+      <label class="btn-outline file-btn" for="import-json">
+        <i class="fa-solid fa-file-import"></i> Import JSON
+        <input id="import-json" type="file" accept=".json" hidden />
+      </label>
+
+      <button id="print-person" class="btn-primary">
+        <i class="fa-solid fa-file-pdf"></i> Print person
+      </button>
+    </div>
+  </header>
+
+  <!-- Main app -->
+  <main class="app" role="main">
+    <!-- LEFT: data entry -->
+    <section class="panel card" aria-label="Dataindtastning">
+      <!-- People -->
+      <details open class="blk">
+        <summary><i class="fa-solid fa-user-group" aria-hidden="true"></i> Personer</summary>
+
+        <div class="grid-2">
+          <label class="fg"><span>Navn</span><input id="p-name" placeholder="fx: Omar, Maria, …" /></label>
+          <label class="fg"><span>Kontakt (valgfri)</span><input id="p-contact" placeholder="+45 … / email / note" /></label>
+        </div>
+        <label class="fg"><span>Note</span><input id="p-note" placeholder="fx: Nabo, kollega, …" /></label>
+        <button class="btn-primary w-100" id="add-person"><i class="fa-solid fa-user-plus"></i> Tilføj person</button>
+
+        <div class="list-head" aria-live="polite">
+          <div class="left">
+            <label class="fg search">
+              <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              <input id="p-search" placeholder="Søg i personer …" />
+            </label>
+          </div>
+          <div class="right"><small>Klik et kort for at vælge</small></div>
+        </div>
+
+        <div id="people-list" class="people-list scroll" role="list" aria-label="Personliste"></div>
+      </details>
+
+      <!-- New transaction -->
+      <details open class="blk">
+        <summary><i class="fa-solid fa-arrow-right-arrow-left" aria-hidden="true"></i> Ny transaktion</summary>
+        <div class="info-small" id="current-person-label">Vælg en person ovenfor</div>
+
+        <div class="grid-2">
+          <label class="fg">
+            <span>Type</span>
+            <select id="t-type" aria-label="Transaktionstype">
+              <option value="lent">Jeg lånte dem penge (de skylder mig)</option>
+              <option value="repay_to_me">De betalte tilbage til mig</option>
+              <option value="borrowed">Jeg lånte af dem (jeg skylder dem)</option>
+              <option value="repay_by_me">Jeg betalte tilbage til dem</option>
+            </select>
+          </label>
+          <label class="fg"><span>Beløb</span><input id="t-amount" type="number" step="0.01" min="0" placeholder="fx 500" /></label>
+        </div>
+
+        <div class="grid-2">
+          <label class="fg"><span>Dato</span><input id="t-date" type="date" /></label>
+          <label class="fg"><span>Forfald (valgfri)</span><input id="t-due" type="date" /></label>
+        </div>
+
+        <label class="fg"><span>Note</span><input id="t-note" placeholder="fx: kontant, MobilePay 1234, rente …" /></label>
+        <button class="btn-primary w-100" id="add-tx"><i class="fa-solid fa-plus"></i> Tilføj til valgt person</button>
+
+        <p class="hint">
+          Beløb håndteres automatisk: <em>Lånte dem</em> = +, <em>de betalte</em> = −, <em>Jeg lånte af dem</em> = −, <em>jeg betalte</em> = +.
+        </p>
+      </details>
+    </section>
+
+    <!-- RIGHT: preview + dashboard -->
+    <section class="preview card" aria-label="Preview & Dashboard">
+      <!-- KPIs -->
+      <div class="summary" aria-live="polite">
+        <div class="sum-card"><div class="label">De skylder mig</div><div class="value" id="sum-in">0</div></div>
+        <div class="sum-card"><div class="label">Jeg skylder</div><div class="value" id="sum-out">0</div></div>
+        <div class="sum-card"><div class="label">Netto</div><div class="value" id="sum-net">0</div></div>
+      </div>
+
+      <!-- Tabs -->
+      <nav class="tabs" aria-label="Visning">
+        <button class="tab active" data-tab="statement"><i class="fa-regular fa-file-lines"></i> Statement</button>
+        <button class="tab" data-tab="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+        <div class="tabs-right">
+          <button class="btn-outline btn-sm" id="dl-dashboard" title="Download dashboard som PNG">
+            <i class="fa-solid fa-download"></i> Download dashboard
+          </button>
+        </div>
+      </nav>
+
+      <!-- Statement view -->
+      <section id="tab-statement" class="no-scrollbar" aria-label="Kontoudtog">
+        <article id="a4-page" class="no-scrollbar" aria-label="A4 statement">
+          <header id="a4-header"></header>
+          <main id="a4-main"></main>
+          <footer id="a4-footer"></footer>
+        </article>
+      </section>
+
+      <!-- Dashboard view -->
+      <section id="tab-dashboard" hidden aria-label="Admin dashboard">
+        <div id="dashboard-wrap" class="dash">
+          <div class="kpis">
+            <div class="kpi"><div class="kpi-label">Personer</div><div class="kpi-val" id="kpi-people">0</div></div>
+            <div class="kpi"><div class="kpi-label">Total de skylder mig</div><div class="kpi-val good" id="kpi-owed">0</div></div>
+            <div class="kpi"><div class="kpi-label">Total jeg skylder</div><div class="kpi-val bad" id="kpi-owe">0</div></div>
+            <div class="kpi"><div class="kpi-label">Netto</div><div class="kpi-val" id="kpi-net">0</div></div>
+          </div>
+
+          <div class="grid-2">
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-ranking-star"></i> Top saldi (7 største)</div>
+              <canvas id="ch-top"></canvas>
+            </div>
+
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-calendar-days"></i> Netto pr. måned (12 mdr.)</div>
+              <canvas id="ch-monthly-net"></canvas>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-diagram-project"></i> Beløb pr. type</div>
+              <canvas id="ch-by-type"></canvas>
+            </div>
+
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-triangle-exclamation"></i> Forfaldne beløb (alder)</div>
+              <canvas id="ch-aging"></canvas>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title"><i class="fa-solid fa-signal"></i> Transaktioner pr. måned</div>
+            <canvas id="ch-monthly-count"></canvas>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- html2pdf (uses html2canvas internally) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- App JS -->
+  <script src="assets/js/script.js"></script>
+</body>
+</html>
