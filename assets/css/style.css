@@ -118,7 +118,7 @@ input:focus, textarea:focus, select:focus{outline:none; border-color:var(--accen
 }
 @media (min-width:980px){
   #a4-page{
-    width:210mm;              /* A4 look on big screens */
+    /*width:210mm; */             /* A4 look on big screens */
     min-height:297mm;
     padding:14mm;
   }
